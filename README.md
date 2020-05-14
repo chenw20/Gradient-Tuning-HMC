@@ -1,4 +1,4 @@
-# Hamiltonian Measure Preverving Flows
+# Hamiltonian Ergodic Inference
 This is the demo code of Hamiltonian Ergodic Inference
 
 ## Requirement
