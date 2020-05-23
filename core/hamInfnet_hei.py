@@ -43,17 +43,12 @@ class HamInfNetHEI:
                                          trainable=True, dtype=dtype)
         self.momentum = tf.exp(0.5* self.log_r_var)* \
             tf.random_normal(shape=self.log_r_var.shape)
-        """
-        self.momentum = tf.random_normal(stddev=tf.sqrt(tf.exp(self.log_r_var)),
-                                    shape=self.log_r_var.shape)
-        """
         
         self.log_inflation = tf.get_variable(name="{}log_inflation".format(name_space),
                                              shape=(),
                                              initializer=tf.zeros_initializer,
                                              trainable=True, dtype=dtype)
         
-    #def __build_LF_graph(self, pot_fun, state_init, momentum, num_layers=None, back_prop=False):
     def __build_LF_graph_hmc(self, pot_fun, state_init, num_layers=None, back_prop=False):
         if num_layers is None:
             num_layers_effect = self.num_layers
@@ -66,7 +61,6 @@ class HamInfNetHEI:
                                     r=self.momentum[layer_index],
                                     pot_fun=pot_fun,
                                     eps=self.lfstep_size[layer_index],
-                                    #r_var=1.0,
                                     r_var=tf.exp(self.log_r_var[layer_index]),
                                     numleap=self.num_lfsteps,
                                     stop_gradient_pot=self.stop_gradient,
@@ -88,7 +82,6 @@ class HamInfNetHEI:
                                     r=tf.stop_gradient(self.momentum[layer_index]),
                                     pot_fun=pot_fun,
                                     eps=tf.stop_gradient(self.lfstep_size[layer_index]),
-                                    #r_var=1.0,
                                     r_var=tf.exp(tf.stop_gradient(self.log_r_var[layer_index])),
                                     numleap=self.num_lfsteps,
                                     stop_gradient_pot=self.stop_gradient,
@@ -164,7 +157,7 @@ class HamInfNetHEI:
         elbo_x_mean = (-tf.reduce_mean(elbo_per_data_x), tf.reduce_mean(log_q0_z))
         logD_mean = tf.reduce_mean(logD_per_data)
         recon_mean = tf.reduce_mean(pot_energy_all_samples_final - pot_gaussian_prior)
-        return elbo_mean, recon_mean, elbo_x_mean   # elbo_mean is actually -elbo_mean
+        return elbo_mean, recon_mean, elbo_x_mean   # elbo_mean is actually neg_elbo_mean
     
     def build_ksd_graph(self, pot_fun, state_init_gen, sample_batch_size, input_data_batch_size, training=False):
         # state_init shape: sample_batch_size x input_data_batch_size x sample dimensions
@@ -173,19 +166,14 @@ class HamInfNetHEI:
         
         state_final = self.__build_LF_graph_ksd(pot_fun, state_init, back_prop=training)
         
-        def KSD_no_second_gradient(z, Sqx):
+        def KSD_no_second_gradient(z, Sqx, flag_U=False):
             # dim_z is sample_size * latent_dim 
             # compute the rbf kernel
             K, dimZ = z.shape
-            """
-            K = K.value
-            dimZ = dimZ.value
-            """
             r = tf.reduce_sum(z*z, 1)
             # turn r into column vector
             r = tf.reshape(r, [-1, 1])
             pdist_square = r - 2*tf.matmul(z, tf.transpose(z)) + tf.transpose(r)
-            #pdist_square = tf.reduce_sum((z[None,:]-z[:,None])**2,-1)
             
             def get_median(v):
                 v = tf.reshape(v, [-1])
@@ -197,14 +185,7 @@ class HamInfNetHEI:
                     mid2 = v.get_shape()[0]//2 + 1
                     return 0.5* (tf.nn.top_k(v, mid1).values[-1]+tf.nn.top_k(v, mid2).values[-1])
             h_square = get_median(pdist_square)
-            #h_square = tf.clip_by_value(tf.stop_gradient(get_median(pdist_square)), clip_value_min = 0.0000001, clip_value_max=1000000)
-            #h_square = 0.5* tf.exp(tf.log(median+0.0000001))/ tf.log(K.value + 1.0)
-            #h_square = tf.reduce_logsumexp(median+0.0000001)  
-            
-            #h_square = 1
-            #h_square = tf.stop_gradient(tf.reduce_mean(pdist_square))
             Kxy = tf.exp(- pdist_square / (2* h_square) )
-            #Kxy = tf.exp(- tf.exp(tf.log(pdist_square+0.0000001)-tf.log(2* median+0.0000001)))
         
             # now compute KSD
             Sqxdy = tf.matmul(tf.stop_gradient(Sqx), tf.transpose(z)) -\
@@ -213,69 +194,35 @@ class HamInfNetHEI:
         
             dxSqy = tf.transpose(Sqxdy)
             dxdy = -pdist_square / (h_square ** 2) + dimZ.value / h_square
-            #dxdy = -pdist_square / (h_square ** 2) 
             # M is a (K, K) tensor
             M = (tf.matmul(tf.stop_gradient(Sqx), tf.transpose(tf.stop_gradient(Sqx))) +\
                  Sqxdy + dxSqy + dxdy) * Kxy
-        
+            
+            # the following for U-statistic
+            if flag_U:
+                M2 = M - tf.diag(tf.diag(M))
+                return tf.reduce_sum(M2) / (K.value * (K.value-1) )
+            
             # the following for V-statistic
-            #M2 = M - np.diag(np.diag(M))
-            #return tf.reduce_sum(M) / (K.value * K.value )
             return tf.reduce_mean(M) 
         
         # Now apply KSD function to each input in the batch
         # pot_fun is neg-log-lik
-        pot_energy_all_samples = -pot_fun(state_final)  # log_lik,   sample_size * input_batch , neg log-lik
-        grad_pot_all_samples = tf.gradients(ys= pot_energy_all_samples, xs = state_final)[0] #sample_size * input_batch* latent_dim
+        pot_energy_all_samples = pot_fun(state_final)  # sample_size * input_batch , neg log-lik
+        grad_pot_all_samples = tf.gradients(ys= -pot_energy_all_samples, xs = state_final)[0] #sample_size * input_batch* latent_dim
         
         cond = lambda batch_index, ksd_sum: tf.less(batch_index, input_data_batch_size)
         def _loopbody(batch_index, ksd_sum):
-            """
-            potential=pot_fun(state_final[:,batch_index,:])
-            ksd_sum_new = ksd_sum +\
-                KSD_no_second_gradient(state_final[:,batch_index,:], \
-                        tf.gradients(ys= potential, xs=state_final[:,batch_index,:])[0])
-            """
-            #ksd_sum_new = ksd_sum + KSD_no_second_gradient(state_final[:,batch_index,:], grad_pot_all_samples[:,batch_index,:])
-                        #tf.gradients(ys= potential, xs=state_final[:,batch_index,:])[0])
             return batch_index + 1, ksd_sum + KSD_no_second_gradient(state_final[:,batch_index,:], grad_pot_all_samples[:,batch_index,:])
         
-        _, ksd_sum_final = tf.while_loop(cond=cond, body=_loopbody, loop_vars=(0, 0.* KSD_no_second_gradient(state_final[:,0,:],grad_pot_all_samples[:,0,:])))
-                                #tf.gradients(ys=potential0, xs=state_final[:,0,:])[0])))
-        """
-        potential0 = pot_fun(state_final[:,0,:])
-        _, ksd_sum_final = tf.while_loop(cond=cond, body=_loopbody, loop_vars=(1, KSD_no_second_gradient(state_final[:,0,:], \
-                                tf.gradients(ys=potential0, xs=state_final[:,0,:])[0])))
-        """
+        _, ksd_sum_final = tf.while_loop(cond=cond, body=_loopbody, loop_vars=(1, KSD_no_second_gradient(state_final[:,0,:],grad_pot_all_samples[:,0,:])))
         return ksd_sum_final/input_data_batch_size
-
-        """
-        ####################################### Compute Energy ########################################
-        # pot_energy_all_sample shape: sample_batch_size x input_data_batch_size
-        pot_energy_all_samples_final = pot_fun(state_final)  # potential function is the negative log likelihood
-        pot_energy_all_samples_init = pot_fun(state_init)  # potential function is the negative log likelihood
-        pot_gaussian_prior = 0.5*tf.reduce_sum(state_final**2 + log_2pi, axis=-1)
-
-        # nelbo_per_sample = -elbo_per_data_momentum
-        nelbo_per_sample = pot_energy_all_samples_final
-        # nelbo_per_sample = pot_energy_all_samples_final + pot_energy_all_samples_init + log_q0_z  #- elbo_per_data_momentum #+ kinetic_out - kinetic_in  #  # -logp(x) + logq(x)
-        nelbo_per_sample_x = pot_energy_all_samples_final
-        elbo_per_data = tf.reduce_mean(-nelbo_per_sample, axis=0)
-        elbo_per_data_x = tf.reduce_mean(-nelbo_per_sample_x, axis=0)
-        logD_per_data = tf.reduce_logsumexp(-nelbo_per_sample, axis=0, keepdims=True) - tf.log(
-            tf.constant(sample_batch_size, dtype=tf.float32))
-        elbo_mean = tf.reduce_mean(elbo_per_data)
-        elbo_x_mean = (-tf.reduce_mean(elbo_per_data_x), tf.reduce_mean(log_q0_z))
-        logD_mean = tf.reduce_mean(logD_per_data)
-        recon_mean = tf.reduce_mean(pot_energy_all_samples_final - pot_gaussian_prior)
-        return elbo_mean, recon_mean, elbo_x_mean
-        """
         
     def getParams(self):
         return self.lfstep_size_raw, self.q0_mean, self.log_q0_std, self.log_r_var, self.log_inflation
     
     
-    
+    """
     def getlf_step(self):
         return self.lfstep_size_raw
 
@@ -336,4 +283,5 @@ class HamInfNetHEI:
     def build_elbo_graph_gauss(self, pot_fun, sample_batch_size, input_data_batch_size, training=False):
         return self.build_elbo_graph(pot_fun, self.__prepare_state_init, sample_batch_size, input_data_batch_size,
                                      training)
+    """
     
