@@ -28,12 +28,14 @@ def LogMeanExp(A, axis=None):
     :param axis: the axis of summation
     :return: log sum(exp(A)) - log K
     """
-    A_max = tf.reduce_max(A, axis=axis)
+    #A_max = tf.reduce_max(A, axis=axis)
+    A_max = tf.reduce_max(A, axis=axis, keepdims=True)
     B = (
             tf.log(tf.reduce_mean(tf.exp(A - A_max), axis=axis)) +
             A_max
     )
-    return B
+    #return B
+    return B[0]
 
 
 def ais_step(pot_pre, pot_new, sample_pre, log_weight_pre, mcmc_kernel):
@@ -61,8 +63,9 @@ def ais_step(pot_pre, pot_new, sample_pre, log_weight_pre, mcmc_kernel):
     return sample_new, log_weight_new, acp_flag, w_update
 
 
-def hais_gauss(pot_target, num_chains, dim, num_scheduled_dists=20, num_leaps=20, step_size=0.1, dtype=tf.float32):
-    sample_init = tf.random_normal(shape=(num_chains, dim), dtype=dtype)
+def hais_gauss(pot_target, num_chains, input_batch_size, dim, num_scheduled_dists=20, num_leaps=20, step_size=0.1, dtype=tf.float32):
+    #sample_init = tf.random_normal(shape=(num_chains, dim), dtype=dtype)
+    sample_init = tf.random_normal(shape=(num_chains, input_batch_size, dim), dtype=dtype)
     pot_init = lambda x: 0.5 * tf.reduce_sum(x ** 2.0, axis=-1)
     log_init_partition = 0.5 * log_2pi * dim
     schedule_np = sigmoid_schedule(num=num_scheduled_dists)
@@ -120,10 +123,11 @@ def hais(pot_target, pot_init, sample_init, log_init_partition, schedule, num_le
              sample: the generated samples at the end of HAIS
              acp_rate: averaged acceptance rate of HMC transition over all annealing distributions
     """
-    pot_tmp = lambda beta, z: (1 - beta) * pot_init(z) + beta * pot_target(z)  # output dim: num_chains x pot_dim
+    pot_tmp = lambda beta, z: (1 - beta) * pot_init(z) + beta * pot_target(z)  #   num_chains* input_batch       output dim: num_chains x pot_dim
     mcmc_kernel = lambda pot_fun, sample_pre: hmc_kernel(pot_fun, sample_pre, num_leaps=num_leaps, step_size=step_size)
-    log_weights_init = tf.zeros(shape=(tf.shape(sample_init)[0],), dtype=dtype)  # dim: num_chains x pot_dim
-    loop_vars = (1, sample_init, log_weights_init, 1.0)
+    log_weights_init = tf.zeros(shape=(tf.shape(sample_init)[0], tf.shape(sample_init)[1]), dtype=dtype)  # num_chains * input_batch      dim: num_chains x pot_dim
+    #loop_vars = (1, sample_init, log_weights_init, 1.0)
+    loop_vars = (1, sample_init, log_weights_init, tf.cast(tf.tile(tf.constant(np.array([1.0])), (sample_init.shape[1],)),tf.float32))
     num_dists = tf.shape(schedule)[0]
 
     cond = lambda dist_id, sample_init, log_weights_init, acp_rate: tf.less(dist_id, num_dists)
@@ -135,10 +139,13 @@ def hais(pot_target, pot_init, sample_init, log_init_partition, schedule, num_le
         pot_fun_pre = lambda z: pot_tmp(beta_pre, z)
         pot_fun_i = lambda z: pot_tmp(beta, z)
         sample_new, log_weight_new, acp_flag, _ = ais_step(pot_fun_pre, pot_fun_i, samples, log_weights, mcmc_kernel)
-        acp_rate = (acp_rate * (tf.cast(dist_id, tf.float32) - 1) + tf.reduce_mean(acp_flag)) / tf.cast(dist_id,
-                                                                                                        tf.float32)
+        #acp_rate = (acp_rate * (tf.cast(dist_id, tf.float32) - 1) + tf.reduce_mean(acp_flag)) / tf.cast(dist_id,
+        #                                                                                                tf.float32)
+        acp_rate = (acp_rate * (tf.cast(dist_id, tf.float32) - 1) + tf.reduce_mean(acp_flag,0)) / tf.cast(dist_id,
+                                                                                   tf.float32)
         return dist_id + 1, sample_new, log_weight_new, acp_rate
 
     _, sample, log_weights, acp_rate = tf.while_loop(cond=cond, body=_loop_body, loop_vars=loop_vars)
-    log_partition = LogMeanExp(log_weights, axis=-1) + log_init_partition
+    #log_partition = LogMeanExp(log_weights, axis=-1) + log_init_partition  # log_weights: num_chains * batch
+    log_partition = LogMeanExp(log_weights, axis=0) + log_init_partition   # input_batch
     return log_partition, log_weights, sample, acp_rate
