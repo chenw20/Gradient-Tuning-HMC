@@ -67,8 +67,9 @@ def hmc_kernel(pot_fun, x_init, num_leaps, step_size, dtype=tf.float32):
     kin_new = tf.reduce_sum(0.5 * momentum_new ** 2, axis=-1)
     dH = pot_init + kin - (pot_new + kin_new)
     acp = tf.minimum(1.0, tf.exp(dH))
-    acp_flag = acp > tf.random_uniform(shape=tf.shape(acp))
-    x_accpeted = tf.where(acp_flag, x_new, x_init)
+    acp_flag = acp > tf.random_uniform(shape=tf.shape(acp))  # num_chains* input_batch
+    #x_accpeted = tf.where(acp_flag, x_new, x_init)
+    x_accpeted = tf.where(tf.tile(tf.expand_dims(acp_flag, 2), (1,1,x_init.shape[-1])), x_new, x_init)
     U_accepted = pot_fun(x_accpeted)
     return x_accpeted, U_accepted, dH, tf.cast(acp_flag, tf.float32)
 
