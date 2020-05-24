@@ -43,7 +43,7 @@ def load_model(model_path, mb_size=36, dtype=tf.float32):
 
 def demo(dataset, device="GPU", dtype=tf.float32):
     model_path = "model/mb_128_layers_10_epoch_50/"
-    mb_demo_size = 1
+    mb_demo_size = 600
 
     setting = load_setting(model_path)
     X_mnist_dim = setting['X_mnist_dim']
@@ -59,7 +59,7 @@ def demo(dataset, device="GPU", dtype=tf.float32):
 
         pot_fun = lambda z: vae_decoder_pot.pot_fun(data_x=X_batch_demo, sample_z=z)
        
-        log_partition, log_weights, sample, acp_rate = hais_gauss(pot_target=pot_fun, num_chains=1000, dim=z_dim,
+        log_partition, log_weights, sample, acp_rate = hais_gauss(pot_target=pot_fun, num_chains=100, input_batch_size=mb_demo_size, dim=z_dim,
                                                               num_scheduled_dists=1000,
                                                               num_leaps=5,
                                                               step_size=0.15)
@@ -73,7 +73,7 @@ def demo(dataset, device="GPU", dtype=tf.float32):
         log_weights_list=[]
         sample_list=[]
         acp_rate_list=[]
-        for i in range(10000):
+        for i in range(100):
             start = time.time()
             X_mb_demo, _ = dataset.test.next_batch(mb_demo_size)
             log_partition_i, log_weights_i, sample_i, acp_rate_i = sess.run([log_partition, log_weights, sample, acp_rate], feed_dict={X_batch_demo: X_mb_demo})
