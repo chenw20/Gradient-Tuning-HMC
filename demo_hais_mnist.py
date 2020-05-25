@@ -43,7 +43,7 @@ def load_model(model_path, mb_size=36, dtype=tf.float32):
 
 def demo(dataset, device="GPU", dtype=tf.float32):
     model_path = "model/mb_128_layers_10_epoch_50/"
-    mb_demo_size = 600
+    mb_demo_size = 100
 
     setting = load_setting(model_path)
     X_mnist_dim = setting['X_mnist_dim']
