@@ -24,7 +24,7 @@ def training_setting(z_dim):
                'num_lfsteps': 5,
                'momentum_std': 1.0,
                'generator': 'dcnn_relu',
-               'batches': 25000,   #500000
+               'batches': 50000,   #500000
                'dybin': True,
                'reg': 0.000001,
                'lr': 0.0002, #0.0002
@@ -114,7 +114,8 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             mu, log_var = vaeq.Q(X_batch_train)
             mu_nograd = tf.stop_gradient(mu)  
             log_var_nograd = tf.stop_gradient(log_var)   
-            inflation = tf.exp(tf.stop_gradient(log_inflation))
+            #inflation = tf.exp(tf.stop_gradient(log_inflation))
+            inflation = tf.exp(log_inflation)   # avoid ksd overinflates 
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
             logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var_nograd, axis=-1)
             return eps * (inflation* tf.exp(log_var_nograd / 2)) + mu_nograd, logp
@@ -125,10 +126,11 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             mu_nograd = tf.stop_gradient(mu)
             log_var_nograd = tf.stop_gradient(log_var)
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
-            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var, axis=-1)
+            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var_nograd, axis=-1)
             return eps * (inflation* tf.exp(log_var_nograd / 2)) + mu_nograd, logp
 
-        pot_fun_train = lambda state: vae.pot_fun(data_x=X_batch_train, sample_z=state)
+        pot_fun_train = lambda state: vae.pot_fun_train(data_x=X_batch_train, sample_z=state)
+        pot_fun_not_train = lambda state: vae.pot_fun_not_train(data_x=X_batch_train, sample_z=state)
 
         hamInfNet_hm = HamInfNet(num_layers=num_layers, num_lfsteps=num_lfsteps,
                                  sample_dim=z_dim, dtype=dtype)
@@ -137,13 +139,13 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             pot_fun=pot_fun_train,
             state_init_gen=gen_fun_train_hmc,
             input_data_batch_size=mb_size,
-            sample_batch_size=1,
+            sample_batch_size=z_train_sample_batch_size,
             training=True
         )
         pot_batch_mean = -neg_pot    # pot_batch_mean is neg-log-lik
         
         ksd_mean = hamInfNet_hm.build_ksd_graph(
-            pot_fun=pot_fun_train,
+            pot_fun=pot_fun_not_train,
             state_init_gen=gen_fun_train_ksd,
             input_data_batch_size=mb_size,
             sample_batch_size=z_train_sample_batch_size,
@@ -186,7 +188,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        checkpoint_batch = 5000 #1000
+        checkpoint_batch = 1000 #1000
         total_time = 0
         for i in np.arange(0, batches):
             X_mb_raw, _ = dataset.train.next_batch(mb_size)
@@ -209,9 +211,8 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             loss_q_seq.append(q_loss_i)
             ksd_seq.append(ksd_mean_i)
             recon_seq.append(recon_mean_i)
-            
-            if i % 10 ==9:
-            #if True:
+            #if i % 10 ==9:
+            if True:
                 log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
                                                                                      np.mean(np.array(loss_seq)),
                                                                                      np.mean(np.array(loss_q_seq)),
@@ -228,7 +229,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 ksd_seq.clear()
                 recon_seq.clear()
                 total_time = 0
-            if save_model and i % checkpoint_batch == 4999:
+            if save_model and i % checkpoint_batch == 999:
                 print("model saved at iter: {}".format(i + 1))
                 saver.save(sess, ckpt_name, global_step=global_step)
                 with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
