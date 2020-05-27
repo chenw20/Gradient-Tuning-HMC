@@ -13,10 +13,10 @@ from util.utils import dybinarize_mnist
 
 
 def training_setting(z_dim):
-    setting = {'mb_size': 64,
+    setting = {'mb_size': 128,
                'alpha': 0.3,
                'z_dim': z_dim,
-               'h_dim': 100,  #500
+               'h_dim': 500,  #500
                'X_mnist_dim': 28 ** 2,
                'momentum_train_batch_size': 1,
                'z_train_sample_batch_size': 20,  #1
@@ -24,10 +24,10 @@ def training_setting(z_dim):
                'num_lfsteps': 5,
                'momentum_std': 1.0,
                'generator': 'dcnn_relu',
-               'batches': 3000,   #500000
+               'batches': 25000,   #500000
                'dybin': True,
                'reg': 0.000001,
-               'lr': 0.0002,
+               'lr': 0.0002, #0.0002
                'lr-decay': 0.97,
                }
     return setting
@@ -89,7 +89,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                                                                                               num_layers,
                                                                                               num_lfsteps,
                                                                                               reg, bin_label, lr)
-    output_dir = "model/debug_hei_vae2/"
+    output_dir = "model/debug/"
 
     if save_model:
         os.mkdir(output_dir + '{}'.format(model_name))
@@ -132,7 +132,8 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
         hamInfNet_hm = HamInfNet(num_layers=num_layers, num_lfsteps=num_lfsteps,
                                  sample_dim=z_dim, dtype=dtype)
-        neg_pot, recon_mean, elbo_x_mean = hamInfNet_hm.build_elbo_graph(
+        #neg_pot, recon_mean, elbo_x_mean = hamInfNet_hm.build_elbo_graph(
+        neg_pot, recon_mean = hamInfNet_hm.build_elbo_graph(
             pot_fun=pot_fun_train,
             state_init_gen=gen_fun_train_hmc,
             input_data_batch_size=mb_size,
@@ -141,7 +142,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
         )
         pot_batch_mean = -neg_pot    # pot_batch_mean is neg-log-lik
         
-        ksd_mean, grad_pot = hamInfNet_hm.build_ksd_graph(
+        ksd_mean = hamInfNet_hm.build_ksd_graph(
             pot_fun=pot_fun_train,
             state_init_gen=gen_fun_train_ksd,
             input_data_batch_size=mb_size,
@@ -157,6 +158,8 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                                                    1000, lr_decay, staircase=True)
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         train_op = optimizer.minimize(loss, global_step=global_step)
+        
+        inflation = hamInfNet_hm.getInflation() 
         """
         loss =  ksd_mean + pot_batch_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
 
@@ -176,14 +179,14 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
     recon_seq = []
     ksd_seq = []
     saved_variables = vae.get_parameters() + hamInfNet_hm.getParams() + vaeq.get_parameters()
-    saver = tf.train.Saver(saved_variables)
+    saver = tf.train.Saver(saved_variables, max_to_keep=10)
     print(saved_variables)
     
     log = []
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        checkpoint_batch = 100 #1000
+        checkpoint_batch = 1000 #1000
         total_time = 0
         for i in np.arange(0, batches):
             X_mb_raw, _ = dataset.train.next_batch(mb_size)
@@ -195,8 +198,8 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 [train_op, train_op2, loss, q_loss, pot_batch_mean, recon_mean],
                 feed_dict={X_batch_train: X_mb})
             """
-            _, loss_i, q_loss_i, ksd_mean_i, pot_mean_i, recon_mean_i, grad_pot_i = sess.run(
-                [train_op, loss, q_loss, ksd_mean, pot_batch_mean, recon_mean, grad_pot],
+            _, loss_i, q_loss_i, ksd_mean_i, pot_mean_i, recon_mean_i, inflation_i = sess.run(
+                [train_op, loss, q_loss, ksd_mean, pot_batch_mean, recon_mean, inflation],
                 feed_dict={X_batch_train: X_mb})
             
             pot_seq.append(pot_mean_i)
@@ -208,13 +211,13 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             recon_seq.append(recon_mean_i)
             #if i % 10 ==9:
             if True:
-                log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, grad_pot: {}, time: {}'.format(i + 1,
+                log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
                                                                                      np.mean(np.array(loss_seq)),
                                                                                      np.mean(np.array(loss_q_seq)),
                                                                                      np.mean(np.array(ksd_seq)),
                                                                                      np.mean(np.array(pot_seq)),
                                                                                      np.mean(np.array(recon_seq)),
-                                                                                     grad_pot_i.shape,
+                                                                                     inflation_i,
                                                                                      total_time)
                 print(log_line)
                 log.append(log_line + '\n')
@@ -224,7 +227,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 ksd_seq.clear()
                 recon_seq.clear()
                 total_time = 0
-            if save_model and i % checkpoint_batch == 99:
+            if save_model and i % checkpoint_batch == 999:
                 print("model saved at iter: {}".format(i + 1))
                 saver.save(sess, ckpt_name, global_step=global_step)
                 with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
@@ -240,4 +243,4 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
 if __name__ == '__main__':
     mnist = input_data.read_data_sets('data/MNIST_data', one_hot=True)
-    train(setting=training_setting(10), dataset=mnist, save_model=False, device="CPU") # 32
+    train(setting=training_setting(10), dataset=mnist, save_model=True, device="GPU") # 32
