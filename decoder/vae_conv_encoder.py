@@ -59,7 +59,7 @@ def encoder_convnet(input_shape, dimH=500, dimZ=32, name='conv_encoder'):
             else:
                 activation = 'linear'
             name_layer = name + '_mlp_l%d' % l
-            enc_mlp.append(mlp_layer(fc_layer[i], fc_layer[i + 1], activation, name_layer))
+            enc_mlp.append(mlp_layer(fc_layer[i], fc_layer[i + 1], activation, name_layer)[0])
             l += 1
 
         print('encoder architecture', print_shapes, 'reshape', fc_layer)
@@ -88,4 +88,3 @@ if __name__ == '__main__':
     encoder_convnet(input_shape=(input_batch_size, 28, 28, 1))
     a = get_encoder_param()
     print(len(a))
-
