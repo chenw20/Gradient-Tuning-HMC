@@ -209,8 +209,9 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             loss_q_seq.append(q_loss_i)
             ksd_seq.append(ksd_mean_i)
             recon_seq.append(recon_mean_i)
-            #if i % 10 ==9:
-            if True:
+            
+            if i % 10 ==9:
+            #if True:
                 log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
                                                                                      np.mean(np.array(loss_seq)),
                                                                                      np.mean(np.array(loss_q_seq)),
