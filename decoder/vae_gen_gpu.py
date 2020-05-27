@@ -24,11 +24,15 @@ class VAE_ABC_GPU:
         return -0.5 * tf.reduce_sum(z ** 2, axis=-1, keepdims=True) - 0.5 * self.z_dim * log_2pi
 
     @abstractmethod
-    def z_to_logits(self, z):  # Your favorite NN comes here
+    def z_to_logits_train(self, z):  # Your favorite NN comes here
+        pass
+    
+    @abstractmethod
+    def z_to_logits_not_train(self, z):  # Your favorite NN comes here
         pass
 
-    def nlog_px_z(self, z):
-        logits = self.z_to_logits(z)
+    def nlog_px_z_train(self, z):
+        logits = self.z_to_logits_train(z)
         if self.afun == 'sigmoid':
             prob = tf.nn.sigmoid(logits)
             return prob, logits
@@ -37,21 +41,52 @@ class VAE_ABC_GPU:
             log_var = 2*tf.log(0.1)
             return mu, log_var
 
-    def nlog_pD_z(self, data_x, z):  # -log p(D | z)
+    def nlog_pD_z_train(self, data_x, z):  # -log p(D | z)
         if self.afun == 'sigmoid':
-            _, logits = self.nlog_px_z(z)
+            _, logits = self.nlog_px_z_train(z)
             return sigmoid_cross_entroy_loss(labels=data_x, logits=logits)
         elif self.afun == 'gaussian':
-            mu, log_var = self.nlog_px_z(z)
+            mu, log_var = self.nlog_px_z_train(z)
             return 0.5*tf.reduce_sum((data_x - mu)**2*tf.exp(-log_var) + log_2pi + log_var, axis=-1)
 
 
-    def pot_fun(self, data_x, sample_z):   # -log_lik
-        recon_loss = tf.reduce_sum(self.nlog_pD_z(data_x, sample_z), axis=-1)
+    def pot_fun_train(self, data_x, sample_z):   # -log_lik
+        recon_loss = tf.reduce_sum(self.nlog_pD_z_train(data_x, sample_z), axis=-1)
         prior_loss = tf.reduce_sum(-self.log_p_z(sample_z), axis=-1)
         pot = recon_loss + prior_loss
         return pot
+    
+    def nlog_px_z_not_train(self, z):
+        logits = self.z_to_logits_not_train(z)
+        if self.afun == 'sigmoid':
+            prob = tf.nn.sigmoid(logits)
+            return prob, logits
+        elif self.afun == 'gaussian':
+            mu = tf.nn.sigmoid(logits)
+            log_var = 2*tf.log(0.1)
+            return mu, log_var
 
+    def nlog_pD_z_not_train(self, data_x, z):  # -log p(D | z)
+        if self.afun == 'sigmoid':
+            _, logits = self.nlog_px_z_not_train(z)
+            return sigmoid_cross_entroy_loss(labels=data_x, logits=logits)
+        elif self.afun == 'gaussian':
+            mu, log_var = self.nlog_px_z_not_train(z)
+            return 0.5*tf.reduce_sum((data_x - mu)**2*tf.exp(-log_var) + log_2pi + log_var, axis=-1)
+
+
+    def pot_fun_not_train(self, data_x, sample_z):   # -log_lik
+        recon_loss = tf.reduce_sum(self.nlog_pD_z_not_train(data_x, sample_z), axis=-1)
+        prior_loss = tf.reduce_sum(-self.log_p_z(sample_z), axis=-1)
+        pot = recon_loss + prior_loss
+        return pot
+    
+    
+    
+    
+    
+    
+"""
     def pot_fun_debug(self, data_x, sample_z):
         recon_loss = tf.reduce_sum(self.nlog_pD_z(data_x, sample_z), axis=-1)
         prior_loss = tf.reduce_sum(-self.log_p_z(sample_z), axis=-1)
@@ -99,4 +134,4 @@ class VAE_ABC_GPU:
         prior_loss = tf.reduce_sum(-self.log_p_z2(sample_z), axis=-1)
         pot = recon_loss + prior_loss
         return pot
-
+"""
