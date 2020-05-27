@@ -72,9 +72,11 @@ def leapfrog(x, r, pot_fun, eps=0.1, numleap=3, r_var=1.0, back_prop=False, stop
         
         x_new_end, r_new_end =  __leapfrog_step_post(x_new_interm, r_new_interm, pot_fun, eps, r_var=r_var,
                                     stop_gradient_pot=stop_gradient_pot)
-        pot_init = tf.stop_gradient(pot_fun(x))    # sample_batch * input_batch
+        #pot_init = tf.stop_gradient(pot_fun(x))    # sample_batch * input_batch
+        pot_init = pot_fun(x) 
         kin = tf.reduce_sum(0.5 * r ** 2, axis=-1)
-        pot_end = tf.stop_gradient(pot_fun(x_new_end))   # sample_batch * input_batch
+        #pot_end = tf.stop_gradient(pot_fun(x_new_end))   # sample_batch * input_batch
+        pot_end = pot_fun(x_new_end)
         kin_end= tf.reduce_sum(0.5 * r_new_end ** 2, axis=-1)
         dH = pot_init + kin - (pot_end + kin_end)
         acp = tf.minimum(1.0, tf.exp(dH))
