@@ -89,7 +89,6 @@ class VAEQ_CONV:
     def sample_z(self, mu, log_var, batch_size=1):
         eps = tf.random_normal(shape=tf.shape(mu))  # input_batch * latent_dim
         if batch_size > 1:
-            #eps = tf.random_normal(shape=(batch_size, tf.shape(mu)[1])) #wrong!!!  # sample_batch * latent_dim
             eps = tf.random_normal(shape=(batch_size, tf.shape(mu)[0], tf.shape(mu)[1]))  # sample_batch * input_batch* latent_dim
         return mu + tf.exp(log_var / 2) * eps   #sample_batch * input_batch* latent_dim
 
@@ -105,30 +104,25 @@ class VAEQ_CONV:
         z_mu, z_logvar = self.Q(X=X_batch)   # input_batch * latent_dim
         sample_z_from_X_batch = self.sample_z(z_mu, z_logvar, batch_size)  #sample_batch * input_batch* latent_dim
         
-        recon_loss = tf.reduce_sum(vae.nlog_pD_z(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
-        kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
-        vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
+        #recon_loss = tf.reduce_sum(vae.nlog_pD_z(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
+        #kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
+        #vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
         
         # pot is -logP*(z|D) = -logP(z,D)
         pot = vae.pot_fun(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
-        pot_mean = tf.reduce_mean(pot)
+        #pot_mean = tf.reduce_mean(pot)
         
-        # log_q_z is log(q(z))
-        #log_q_z = -tf.reduce_sum((sample_z_from_X_batch - z_mu)**2 /(2* tf.exp(z_logvar)) + 0.5 * (log_2pi + z_logvar), axis=-1)  
+        # log_q_z is log(q(z|D))
         log_q_z = -0.5*tf.reduce_sum((sample_z_from_X_batch  - z_mu)**2 *tf.exp(-z_logvar) + log_2pi + z_logvar, axis=-1)  # sample_batch* input_batch
         log_w = -pot - log_q_z    # sample_batch * input_batch
-        """ DReG_alpha_div with alpha = 1
-        #DReG = (tf.stop_gradient((tf.exp(log_w) / tf.reduce_sum(tf.exp(log_w), axis=0))**2)) * log_w   
+        
+        """ 
+        DReG_alpha_div with alpha = 1
         DReG = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w   # sample_batch* input_batch
         DReG_mean = tf.reduce_mean(tf.reduce_sum(DReG, axis=0))
-        #DReG_mean = tf.reduce_mean(DReG)
         """
         
-        #   DReG_alpha_div
-        #alpha = 0.3
-        #alpha_div_term1 = alpha* np.sum(getval(np.exp(alpha* log_w - logsumexp(alpha* log_w))**2.0) * log_w)
-        #alpha_div_term2 = (1.-alpha)* np.sum(getval(np.exp(alpha* log_w - logsumexp(alpha* log_w))) *log_w)
-        #alpha_div = alpha* (alpha_div_term1 + alpha_div_term2)
+        #DReG_alpha_div
         alpha_div_term1 = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w
         alpha_div_term2 = (tf.stop_gradient(tf.exp(self.alpha* log_w - tf.reduce_logsumexp(self.alpha* log_w, axis =0)))) *log_w
         DReG_mean = self.alpha*(self.alpha* tf.reduce_mean(tf.reduce_sum(alpha_div_term1, axis=0)) + (1.-self.alpha)* tf.reduce_mean(tf.reduce_sum(alpha_div_term2, axis=0)))
@@ -136,17 +130,15 @@ class VAEQ_CONV:
         
         """
         # non-DReG_alpha_div
-        alpha = 0.1
-        DReG_mean = tf.reduce_mean(tf.reduce_logsumexp(alpha* log_w,axis=0))
+        non_DReG_mean = tf.reduce_mean(tf.reduce_logsumexp(self.alpha* log_w,axis=0))
         """
+        
         if loss_only:
-            #return vae_loss
             return -DReG_mean
-        
+        """
         else:
-            #return vae_loss, tf.reduce_mean(recon_loss), tf.reduce_mean(kl_loss), pot_mean
             return -DReG_mean, tf.reduce_mean(recon_loss), tf.reduce_mean(kl_loss), pot_mean
-        
+        """
 
 class VAE_DCNN_GPU(VAE_ABC_GPU):
     def __init__(self, h_dim=500, z_dim=32, gen=None, afun='sigmoid'):
