@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from decoder.vae_conv_decoder import generator, get_decoder_param
+from decoder.vae_conv_decoder import generator_train,generator_not_train, get_decoder_param
 from decoder.vae_conv_encoder import encoder_convnet, get_encoder_param
 from decoder.vae_gen_gpu import VAE_ABC_GPU
 from decoder.vae_helper import sigmoid_cross_entroy_loss
@@ -11,7 +11,7 @@ class VAE_DCNN:
         self.num_vis = 28**2
         self.z_dim = 32
         self.h_dim = 500
-        self.dcnn = generator(dimH=h_dim, dimZ=z_dim)
+        self.dcnn_train = generator_train(dimH=h_dim, dimZ=z_dim)
         self.afun = afun
 
     def get_parameters(self):
@@ -109,7 +109,8 @@ class VAEQ_CONV:
         #vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
         
         # pot is -logP*(z|D) = -logP(z,D)
-        pot = vae.pot_fun(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
+        # pot_fun_not_train avoids training decoder params:
+        pot = vae.pot_fun_not_train(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
         #pot_mean = tf.reduce_mean(pot)
         
         # log_q_z is log(q(z|D))
@@ -145,9 +146,15 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
         self.z_dim = z_dim
         self.h_dim = h_dim
         if gen is None:
-            self.dcnn = generator(dimH=h_dim, dimZ=z_dim)
+            self.dcnn_train = generator_train(dimH=h_dim, dimZ=z_dim)
         else:
-            self.dcnn = gen
+            self.dcnn_train = gen
+            
+        if gen is None:
+            self.dcnn_not_train = generator_not_train(dimH=h_dim, dimZ=z_dim)
+        else:
+            self.dcnn_not_train = gen
+            
         self.dtype = tf.float32
         self.afun = afun
 
@@ -160,7 +167,7 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
             reg += tf.reduce_sum(var ** 2)
         return reg
 
-    def z_to_logits(self, z):
+    def z_to_logits_train(self, z):
         z_shape = tuple(z.shape.as_list())
         dim_keep = z_shape[0:len(z_shape)-1]
         dim_keep_prod = 1
@@ -168,6 +175,17 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
             dim_keep_prod *= dim
         z_reshaped = tf.reshape(z, shape=(dim_keep_prod, self.z_dim))
         print(z_reshaped)
-        logits = self.dcnn(z_reshaped)
+        logits = self.dcnn_train(z_reshaped)
+        return tf.reshape(logits, shape=dim_keep+(-1,))
+    
+    def z_to_logits_not_train(self, z):
+        z_shape = tuple(z.shape.as_list())
+        dim_keep = z_shape[0:len(z_shape)-1]
+        dim_keep_prod = 1
+        for dim in dim_keep:
+            dim_keep_prod *= dim
+        z_reshaped = tf.reshape(z, shape=(dim_keep_prod, self.z_dim))
+        print(z_reshaped)
+        logits = self.dcnn_not_train(z_reshaped)
         return tf.reshape(logits, shape=dim_keep+(-1,))
 
