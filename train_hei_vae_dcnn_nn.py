@@ -186,7 +186,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        checkpoint_batch = 1000 #1000
+        checkpoint_batch = 5000 #1000
         total_time = 0
         for i in np.arange(0, batches):
             X_mb_raw, _ = dataset.train.next_batch(mb_size)
@@ -228,7 +228,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 ksd_seq.clear()
                 recon_seq.clear()
                 total_time = 0
-            if save_model and i % checkpoint_batch == 999:
+            if save_model and i % checkpoint_batch == 4999:
                 print("model saved at iter: {}".format(i + 1))
                 saver.save(sess, ckpt_name, global_step=global_step)
                 with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
