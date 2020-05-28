@@ -112,13 +112,13 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
         def gen_fun_train_hmc(sample_batch_size, input_data_batch_size ,log_inflation):
             mu, log_var = vaeq.Q(X_batch_train)
-            mu_nograd = tf.stop_gradient(mu)  
-            log_var_nograd = tf.stop_gradient(log_var)   
+            #mu_nograd = tf.stop_gradient(mu)  
+            #log_var_nograd = tf.stop_gradient(log_var)   
             #inflation = tf.exp(tf.stop_gradient(log_inflation))
             inflation = tf.exp(log_inflation)   # avoid ksd overinflates 
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
-            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var_nograd, axis=-1)
-            return eps * (inflation* tf.exp(log_var_nograd / 2)) + mu_nograd, logp
+            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var, axis=-1)
+            return eps * (inflation* tf.exp(log_var / 2)) + mu, logp
 
         def gen_fun_train_ksd(sample_batch_size, input_data_batch_size ,log_inflation):
             mu, log_var = vaeq.Q(X_batch_train)
