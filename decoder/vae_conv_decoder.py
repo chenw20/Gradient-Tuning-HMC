@@ -7,8 +7,10 @@ from decoder.mlp import mlp_layer
 
 def deconv_layer(output_shape, filter_shape, activation, strides, name):
     #with tf.variable_scope(name,reuse=tf.AUTO_REUSE) as scope:
-    W = slim.variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
-    b = tf.Variable(tf.zeros([filter_shape[-2]]), name=name + '_b')  # use output channel
+        #W = slim.variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
+        #b = tf.Variable(tf.zeros([filter_shape[-2]]), name=name + '_b')  # use output channel
+    W = tf.get_variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
+    b = tf.get_variable(shape=filter_shape[-2],initializer=tf.zeros_initializer, name=name + '_b')  # use output channel
 
     def apply_train(x):
         output_shape_x = (x.get_shape().as_list()[0],) + output_shape
@@ -99,7 +101,7 @@ def generator_not_train(dimH=500, dimZ=32, name='generator'):
         mlp_layers = []
         N_layers = len(fc_layers) - 1
         for i in range(N_layers):
-            name_layer = name + '_conv_l%d' % l
+            name_layer = name + '_mlp_l%d' % l
             mlp_layers.append(mlp_layer(fc_layers[i], fc_layers[i + 1], 'relu', name_layer)[1])
             l += 1
 
@@ -110,7 +112,7 @@ def generator_not_train(dimH=500, dimZ=32, name='generator'):
                 activation = 'relu'
             else:
                 activation = 'linear'
-            name_layer = name + '_mlp_l%d' % l
+            name_layer = name + '_conv_l%d' % l
             output_shape = decoder_input_shape[i + 1]
             input_shape = decoder_input_shape[i]
             up_height = int(np.ceil(output_shape[0] / float(input_shape[0])))
