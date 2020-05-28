@@ -6,9 +6,9 @@ from decoder.mlp import mlp_layer
 
 
 def deconv_layer(output_shape, filter_shape, activation, strides, name):
-    with tf.variable_scope(name,reuse=tf.AUTO_REUSE) as scope:
-        W = slim.variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
-        b = tf.Variable(tf.zeros([filter_shape[-2]]), name=name + '_b')  # use output channel
+    #with tf.variable_scope(name,reuse=tf.AUTO_REUSE) as scope:
+    W = slim.variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
+    b = tf.Variable(tf.zeros([filter_shape[-2]]), name=name + '_b')  # use output channel
 
     def apply_train(x):
         output_shape_x = (x.get_shape().as_list()[0],) + output_shape
@@ -86,7 +86,8 @@ def generator_train(dimH=500, dimZ=32, name='generator'):
         return apply
     
 def generator_not_train(dimH=500, dimZ=32, name='generator'):
-    with tf.variable_scope("vae_decoder"):
+    with tf.variable_scope("vae_decoder") as scope:
+        scope.reuse_variables()
         # now construct a decoder
         input_shape = (28, 28, 1)
         filter_width = 5
