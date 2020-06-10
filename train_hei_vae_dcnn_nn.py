@@ -16,7 +16,7 @@ def training_setting(z_dim):
     setting = {'mb_size': 128,
                'alpha': 0.3,
                'z_dim': z_dim,
-               'h_dim': 100,  #500
+               'h_dim': 500,  #500
                'X_mnist_dim': 28 ** 2,
                'momentum_train_batch_size': 1,
                'z_train_sample_batch_size': 20,  #1
@@ -156,10 +156,10 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
         )
         
         
-        q_loss1 = vaeq.create_loss_train(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
+        q_loss1 = vaeq.create_loss_train(vae, X_batch_train, batch_size = 1, loss_only=True)
         
         
-        q_loss2 = vaeq.create_loss_not_train(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
+        q_loss2 = vaeq.create_loss_not_train(vae, X_batch_train, batch_size = 1, loss_only=True)
         """
         #loss =  pot_batch_mean + q_loss  + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
         loss =  pot_batch_mean + q_loss +ksd_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
