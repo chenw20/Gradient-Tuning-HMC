@@ -10,8 +10,8 @@ class HamInfNetHEI:
                  num_layers,
                  sample_dim,
                  training=False,
-                 #min_step_size=0.01,
-                 min_step_size=0.0,
+                 min_step_size=0.01,
+                 #min_step_size = 0.0,
                  init_step_scale=1.0,
                  log_q0_std_init=0.0,
                  name_space="",
@@ -23,18 +23,13 @@ class HamInfNetHEI:
         self.stop_gradient = stop_gradient
         self.sample_dim = sample_dim
         self.dtype = dtype
-        """
+
         self.lfstep_size_raw = tf.get_variable(name="{}lfstep_size".format(name_space),
                                                initializer=tf.constant(
-                                                   init_step_scale*np.random.uniform(0.02, 0.05, size=(num_layers, 1, sample_dim)),
+                                                   init_step_scale*np.random.uniform(0.02,0.05,size=(num_layers,1,sample_dim)),
                                                    dtype=dtype),
                                                trainable=True, dtype=dtype)
         """
-        self.lfstep_size_raw = tf.get_variable(name="{}lfstep_size".format(name_space),
-                                               initializer=tf.constant(
-                                                   0.01+init_step_scale*np.random.uniform(0.0, 0.015, size=(num_layers, 1, sample_dim)),
-                                                   dtype=dtype),
-                                               trainable=True, dtype=dtype)
         self.q0_mean = tf.get_variable(name="{}q0_mean".format(name_space),
                                        shape=(1, sample_dim),
                                        initializer=tf.zeros_initializer,
@@ -43,18 +38,20 @@ class HamInfNetHEI:
                                           shape=(1, sample_dim),
                                           initializer=tf.constant_initializer(value=log_q0_std_init),
                                           trainable=training, dtype=dtype)
+        """
         self.lfstep_size = tf.abs(self.lfstep_size_raw) + min_step_size
         self.log_r_var = tf.get_variable(name="{}log_r_var".format(name_space),
                                          shape=(num_layers, 1, sample_dim),
                                          initializer=tf.zeros_initializer,
-                                         trainable=True, dtype=dtype)
+                                         trainable=False, dtype=dtype)
         self.momentum = tf.exp(0.5* self.log_r_var)* \
             tf.random_normal(shape=self.log_r_var.shape)
         
-        self.log_inflation = tf.get_variable(name="{}log_inflation".format(name_space),
+        self.raw_inflation = tf.get_variable(name="{}log_inflation".format(name_space),
                                              shape=(),
                                              initializer=tf.zeros_initializer,
                                              trainable=True, dtype=dtype)
+        self.inflation=tf.abs(self.raw_inflation)
         
     def __build_LF_graph_hmc(self, pot_fun, state_init, num_layers=None, back_prop=False):
         if num_layers is None:
@@ -122,7 +119,7 @@ class HamInfNetHEI:
         """
         # state_init shape: sample_batch_size x input_data_batch_size x sample dimensions
         # log_q_z shape: sample_batch_size x input_data_batch_size
-        state_init, log_q0_z = state_init_gen(sample_batch_size, input_data_batch_size, tf.stop_gradient(self.log_inflation))
+        state_init, log_q0_z = state_init_gen(sample_batch_size, input_data_batch_size, self.inflation)
         """
         momentum = tf.random_normal(stddev=tf.sqrt(tf.exp(self.log_r_var)),
                                     shape=(self.num_layers_max, sample_batch_size, input_data_batch_size,
@@ -165,12 +162,12 @@ class HamInfNetHEI:
         #logD_mean = tf.reduce_mean(logD_per_data)
         recon_mean = tf.reduce_mean(pot_energy_all_samples_final - pot_gaussian_prior)
         #return elbo_mean, recon_mean, elbo_x_mean   # elbo_mean is actually neg_elbo_mean
-        return elbo_mean, recon_mean
-        
+        return elbo_mean, recon_mean      
+
     def build_ksd_graph(self, pot_fun, state_init_gen, sample_batch_size, input_data_batch_size, training=False):
         # state_init shape: sample_batch_size x input_data_batch_size x sample dimensions
         # log_q_z shape: sample_batch_size x input_data_batch_size
-        state_init, log_q0_z = state_init_gen(sample_batch_size, input_data_batch_size, self.log_inflation)
+        state_init, log_q0_z = state_init_gen(sample_batch_size, input_data_batch_size, self.inflation)
         
         state_final = self.__build_LF_graph_ksd(pot_fun, state_init, back_prop=training)
         
@@ -192,17 +189,17 @@ class HamInfNetHEI:
                     mid1 = v.get_shape()[0]//2
                     mid2 = v.get_shape()[0]//2 + 1
                     return 0.5* (tf.nn.top_k(v, mid1).values[-1]+tf.nn.top_k(v, mid2).values[-1])
-            h_square = get_median(pdist_square)
+            h_square = tf.stop_gradient(get_median(pdist_square))
             #h_square = tf.stop_gradient(tf.reduce_mean(pdist_square))
-            Kxy = tf.exp(- pdist_square / (2* h_square) )
+            Kxy = tf.exp(- pdist_square / (2* h_square))
         
             # now compute KSD
             Sqxdy = tf.matmul(tf.stop_gradient(Sqx), tf.transpose(z)) -\
                 tf.tile(tf.reduce_sum(tf.stop_gradient(Sqx) * z, 1, keepdims=True), (1, K))
-            Sqxdy = -Sqxdy / h_square
+            Sqxdy = -Sqxdy / (h_square)
         
             dxSqy = tf.transpose(Sqxdy)
-            dxdy = -pdist_square / (h_square ** 2) + dimZ.value / h_square
+            dxdy = -pdist_square / (h_square ** 2) + dimZ.value / (h_square)
             # M is a (K, K) tensor
             M = (tf.matmul(tf.stop_gradient(Sqx), tf.transpose(tf.stop_gradient(Sqx))) +\
                  Sqxdy + dxSqy + dxdy) * Kxy
@@ -214,21 +211,66 @@ class HamInfNetHEI:
             
             # the following for V-statistic
             return tf.reduce_mean(M) 
+        """
+        def KSD_no_second_gradient(z, Sqx):
+            def imq_kernel(x,dim, beta=-.5, c=1.):
+                #dim = tf.cast(tf.shape(x)[-1],tf.float32)
+                XY = tf.matmul(x, tf.transpose(x))
+                X2_ = tf.reshape(tf.reduce_sum(tf.square(x), axis=1), shape=[tf.shape(x)[0], 1])
+                X2 = tf.tile(X2_, [1, tf.shape(x)[0]])
+                pdist = tf.subtract(tf.add(X2, tf.transpose(X2)), 2 * XY)  # pairwise distance matrix
+                
+                def get_median(v):
+                    v = tf.reshape(v, [-1])
+                    if v.get_shape()[0] % 2 == 1:
+                        mid = v.get_shape()[0]//2 + 1
+                        return tf.nn.top_k(v, mid).values[-1]
+                    else:
+                        mid1 = v.get_shape()[0]//2
+                        mid2 = v.get_shape()[0]//2 + 1
+                        return 0.5* (tf.nn.top_k(v, mid1).values[-1]+tf.nn.top_k(v, mid2).values[-1])
+                h_square=tf.stop_gradient(tf.clip_by_value(get_median(pdist), clip_value_min=1e-4,clip_value_max=1e16))
+                kxy = (c + pdist/(h_square)) ** beta
+
+                coeff = 2 * beta * ((c + pdist/(h_square)) ** (beta-1))/(h_square)
+                dxkxy = tf.matmul(coeff, x) - tf.multiply(x, tf.expand_dims(tf.reduce_sum(coeff, axis=1), 1))
+
+                dxykxy_tr = tf.multiply((c + pdist/(h_square)) ** (beta - 2),
+                                        - 2 * dim * c * beta/(h_square) + (- 4 * beta ** 2 + (4 - 2 * dim) * beta)/(tf.clip_by_value(h_square**2,clip_value_min=1e-4,clip_value_max=1e16)) * pdist)
+
+                return kxy, dxkxy, dxykxy_tr
+            def ksd_emp(x,Sqx):
+                dim = tf.cast(tf.shape(x)[-1],tf.float32)
+                #sq = tf.stop_gradient(Sqx)
+                sq = Sqx
+                kxy, dxkxy, dxykxy_tr = imq_kernel(x,dim)
+                t13 = tf.multiply(tf.matmul(sq, tf.transpose(sq)), kxy) + dxykxy_tr
+                t2 = 2 * tf.trace(tf.matmul(sq, tf.transpose(dxkxy)))
+                n = tf.cast(tf.shape(x)[0], tf.float32)
+
+                # ksd = (tf.reduce_sum(t13) - tf.trace(t13) + t2) / (n * (n-1))
+                ksd = (tf.reduce_sum(t13) + t2) / (n ** 2)
+
+                return ksd
+            return ksd_emp(z,tf.stop_gradient(Sqx))
+        
+        """  
         
         # Now apply KSD function to each input in the batch
         # pot_fun is neg-log-lik
         pot_energy_all_samples = pot_fun(state_final)  # sample_size * input_batch , neg log-lik
         grad_pot_all_samples = tf.gradients(ys= -pot_energy_all_samples, xs = state_final)[0] #sample_size * input_batch* latent_dim
-        
+        """
         cond = lambda batch_index, ksd_sum: tf.less(batch_index, input_data_batch_size)
         def _loopbody(batch_index, ksd_sum):
             return batch_index + 1, ksd_sum + KSD_no_second_gradient(state_final[:,batch_index,:], grad_pot_all_samples[:,batch_index,:])
         
+        
         _, ksd_sum_final = tf.while_loop(cond=cond, body=_loopbody, loop_vars=(1, KSD_no_second_gradient(state_final[:,0,:],grad_pot_all_samples[:,0,:])))
         return ksd_sum_final/input_data_batch_size
+        """
+        return KSD_no_second_gradient(tf.reshape(state_final,[sample_batch_size,-1]),  tf.reshape(grad_pot_all_samples,[sample_batch_size,-1]))
         
-    
-    # The following method for computing ksd seems to be slower than the one above
     """
     def build_ksd_graph(self, pot_fun, state_init_gen, sample_batch_size, input_data_batch_size, training=False):
         # state_init shape: sample_batch_size x input_data_batch_size x sample dimensions
@@ -264,6 +306,8 @@ class HamInfNetHEI:
 
             M = (tf.einsum('ijk,ikl->ijl',Sqx,tf.einsum('ijk->ikj',Sqx))+Sqxdy + dxSqy + dxdy) * Kxy
             # the following for V-statistic
+            #M2 = M - np.diag(np.diag(M))
+            #return tf.reduce_sum(M) / (K.value * K.value )
             return tf.reduce_mean(M) 
         
         # Now apply KSD function to each input in the batch
@@ -273,10 +317,10 @@ class HamInfNetHEI:
         return KSD_no_second_gradient(tf.einsum('ijk->jik',state_final), tf.einsum('ijk->jik',grad_pot_all_samples))
     """
     def getParams(self):
-        return self.lfstep_size_raw, self.q0_mean, self.log_q0_std, self.log_r_var, self.log_inflation
+        return self.lfstep_size_raw, self.log_r_var, self.raw_inflation
     
     def getInflation(self):
-        return tf.exp(self.log_inflation) 
+        return self.inflation
     """
     def getlf_step(self):
         return self.lfstep_size_raw
