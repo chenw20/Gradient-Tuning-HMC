@@ -12,6 +12,7 @@ class VAE_DCNN:
         self.z_dim = 32
         self.h_dim = 500
         self.dcnn_train = generator_train(dimH=h_dim, dimZ=z_dim)
+        self.dcnn_not_train = generator_not_train(dimH=h_dim, dimZ=z_dim)
         self.afun = afun
 
     def get_parameters(self):
@@ -30,13 +31,13 @@ class VAE_DCNN:
         return l2_list
 
     def get_generator(self):
-        return self.dcnn
+        return self.dcnn_not_train
 
     def log_p_z(self, z):  # normal z prior
         return -0.5 * tf.reduce_sum(z ** 2, axis=1) - 0.5 * self.z_dim * log_2pi
 
     def nlog_px_z(self, z):  # negative log p(X|z)
-        logits = tf.reshape(self.dcnn(z), shape=(tf.shape(z)[0], self.num_vis))
+        logits = tf.reshape(self.dcnn_not_train(z), shape=(tf.shape(z)[0], self.num_vis))
         if self.afun == 'gaussian':
             mu = tf.nn.sigmoid(logits)
             log_var = 2*tf.log(0.1)
@@ -100,22 +101,23 @@ class VAEQ_CONV:
         mu, log_var = self.Q(X_reshaped)
         return self.sample_z(mu, log_var)
 
-    def create_loss(self, vae, X_batch, batch_size=1, loss_only=True):
+    def create_loss_train(self, vae, X_batch, batch_size=1, loss_only=True):
         z_mu, z_logvar = self.Q(X=X_batch)   # input_batch * latent_dim
         sample_z_from_X_batch = self.sample_z(z_mu, z_logvar, batch_size)  #sample_batch * input_batch* latent_dim
         
-        #recon_loss = tf.reduce_sum(vae.nlog_pD_z(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
-        #kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
-        #vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
+        recon_loss = tf.reduce_sum(vae.nlog_pD_z_train(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
+        kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
+        vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
         
         # pot is -logP*(z|D) = -logP(z,D)
         # pot_fun_not_train avoids training decoder params:
-        pot = vae.pot_fun_not_train(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
+        
+        #pot = vae.pot_fun_train(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
         #pot_mean = tf.reduce_mean(pot)
         
         # log_q_z is log(q(z|D))
-        log_q_z = -0.5*tf.reduce_sum((sample_z_from_X_batch  - z_mu)**2 *tf.exp(-z_logvar) + log_2pi + z_logvar, axis=-1)  # sample_batch* input_batch
-        log_w = -pot - log_q_z    # sample_batch * input_batch
+        #log_q_z = -0.5*tf.reduce_sum((sample_z_from_X_batch  - z_mu)**2 *tf.exp(-z_logvar) + log_2pi + z_logvar, axis=-1)  # sample_batch* input_batch
+        #log_w = -pot - log_q_z    # sample_batch * input_batch
         
         """ 
         DReG_alpha_div with alpha = 1
@@ -124,9 +126,9 @@ class VAEQ_CONV:
         """
         
         #DReG_alpha_div
-        alpha_div_term1 = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w
-        alpha_div_term2 = (tf.stop_gradient(tf.exp(self.alpha* log_w - tf.reduce_logsumexp(self.alpha* log_w, axis =0)))) *log_w
-        DReG_mean = self.alpha*(self.alpha* tf.reduce_mean(tf.reduce_sum(alpha_div_term1, axis=0)) + (1.-self.alpha)* tf.reduce_mean(tf.reduce_sum(alpha_div_term2, axis=0)))
+        #alpha_div_term1 = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w
+        #alpha_div_term2 = (tf.stop_gradient(tf.exp(self.alpha* log_w - tf.reduce_logsumexp(self.alpha* log_w, axis =0)))) *log_w
+        #DReG_mean = self.alpha*(self.alpha* tf.reduce_mean(tf.reduce_sum(alpha_div_term1, axis=0)) + (1.-self.alpha)* tf.reduce_mean(tf.reduce_sum(alpha_div_term2, axis=0)))
         
         
         """
@@ -135,7 +137,51 @@ class VAEQ_CONV:
         """
         
         if loss_only:
-            return -DReG_mean
+            #return -DReG_mean
+            return vae_loss
+        """
+        else:
+            return -DReG_mean, tf.reduce_mean(recon_loss), tf.reduce_mean(kl_loss), pot_mean
+        """
+        
+    def create_loss_not_train(self, vae, X_batch, batch_size=1, loss_only=True):
+        z_mu, z_logvar = self.Q(X=X_batch)   # input_batch * latent_dim
+        sample_z_from_X_batch = self.sample_z(z_mu, z_logvar, batch_size)  #sample_batch * input_batch* latent_dim
+        
+        recon_loss = tf.reduce_sum(vae.nlog_pD_z_not_train(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
+        kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
+        vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
+        
+        # pot is -logP*(z|D) = -logP(z,D)
+        # pot_fun_not_train avoids training decoder params:
+        
+        #pot = vae.pot_fun_not_train(data_x=X_batch, sample_z=sample_z_from_X_batch)  # sample_batch* input_batch
+        #pot_mean = tf.reduce_mean(pot)
+        
+        # log_q_z is log(q(z|D))
+        #log_q_z = -0.5*tf.reduce_sum((sample_z_from_X_batch  - z_mu)**2 *tf.exp(-z_logvar) + log_2pi + z_logvar, axis=-1)  # sample_batch* input_batch
+        #log_w = -pot - log_q_z    # sample_batch * input_batch
+        
+        """ 
+        DReG_alpha_div with alpha = 1
+        DReG = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w   # sample_batch* input_batch
+        DReG_mean = tf.reduce_mean(tf.reduce_sum(DReG, axis=0))
+        """
+        
+        #DReG_alpha_div
+        #alpha_div_term1 = (tf.stop_gradient((tf.exp(log_w - tf.reduce_logsumexp(log_w, axis=0)))**2))* log_w
+        #alpha_div_term2 = (tf.stop_gradient(tf.exp(self.alpha* log_w - tf.reduce_logsumexp(self.alpha* log_w, axis =0)))) *log_w
+        #DReG_mean = self.alpha*(self.alpha* tf.reduce_mean(tf.reduce_sum(alpha_div_term1, axis=0)) + (1.-self.alpha)* tf.reduce_mean(tf.reduce_sum(alpha_div_term2, axis=0)))
+        
+        
+        """
+        # non-DReG_alpha_div
+        non_DReG_mean = tf.reduce_mean(tf.reduce_logsumexp(self.alpha* log_w,axis=0))
+        """
+        
+        if loss_only:
+            #return -DReG_mean
+            return vae_loss
         """
         else:
             return -DReG_mean, tf.reduce_mean(recon_loss), tf.reduce_mean(kl_loss), pot_mean
@@ -188,4 +234,3 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
         print(z_reshaped)
         logits = self.dcnn_not_train(z_reshaped)
         return tf.reshape(logits, shape=dim_keep+(-1,))
-
