@@ -48,8 +48,9 @@ class HamInfNetHEI:
             tf.random_normal(shape=self.log_r_var.shape)
         
         self.raw_inflation = tf.get_variable(name="{}log_inflation".format(name_space),
-                                             shape=(),
-                                             initializer=tf.zeros_initializer,
+                                             #shape=(),
+                                             #initializer=tf.zeros_initializer,
+                                             initializer=tf.constant(1.0)
                                              trainable=True, dtype=dtype)
         self.inflation=tf.abs(self.raw_inflation)
         
