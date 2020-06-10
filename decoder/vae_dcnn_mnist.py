@@ -105,8 +105,8 @@ class VAEQ_CONV:
         z_mu, z_logvar = self.Q(X=X_batch)   # input_batch * latent_dim
         sample_z_from_X_batch = self.sample_z(z_mu, z_logvar, batch_size)  #sample_batch * input_batch* latent_dim
         
-        recon_loss = tf.reduce_sum(vae.nlog_pD_z_train(data_x=X_batch, z=sample_z_from_X_batch), axis=1)
-        kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=1)
+        recon_loss = tf.reduce_sum(vae.nlog_pD_z_train(data_x=X_batch, z=sample_z_from_X_batch), axis=-1)
+        kl_loss = 0.5 * tf.reduce_sum(tf.exp(z_logvar) + z_mu ** 2 - 1. - z_logvar, axis=-1)
         vae_loss = tf.reduce_mean(recon_loss) + tf.reduce_mean(kl_loss)
         
         # pot is -logP*(z|D) = -logP(z,D)
