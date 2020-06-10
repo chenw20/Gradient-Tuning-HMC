@@ -16,11 +16,11 @@ def training_setting(z_dim):
     setting = {'mb_size': 128,
                'alpha': 0.3,
                'z_dim': z_dim,
-               'h_dim': 500,  #500
+               'h_dim': 100,  #500
                'X_mnist_dim': 28 ** 2,
                'momentum_train_batch_size': 1,
                'z_train_sample_batch_size': 20,  #1
-               'num_layers': 10,   #30
+               'num_layers': 30,   #30
                'num_lfsteps': 5,
                'momentum_std': 1.0,
                'generator': 'dcnn_relu',
@@ -89,7 +89,9 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                                                                                               num_layers,
                                                                                               num_lfsteps,
                                                                                               reg, bin_label, lr)
-    output_dir = "model/debug/"
+    output_dir = "model/debug2/"
+
+    #output_dir = "model/alphadiv_encdec_rbf_30ly_20sam/"
 
     if save_model:
         os.mkdir(output_dir + '{}'.format(model_name))
@@ -102,7 +104,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
-    #global_step2 = tf.Variable(0, trainable=False, name='global_step2')
+    global_step2 = tf.Variable(0, trainable=False, name='global_step2')
 
     device_config = '/device:{}:0'.format(device)
     with tf.device(device_config):
@@ -110,19 +112,19 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
         vaeq = VAEQ_CONV(alpha = alpha, h_dim=h_dim, z_dim=z_dim)
         vae = VAE_DCNN_GPU(h_dim=h_dim, z_dim=z_dim)
 
-        def gen_fun_train_hmc(sample_batch_size, input_data_batch_size ,log_inflation):
+        def gen_fun_train_hmc(sample_batch_size, input_data_batch_size ,inflation):
             mu, log_var = vaeq.Q(X_batch_train)
-            #mu_nograd = tf.stop_gradient(mu)  
-            #log_var_nograd = tf.stop_gradient(log_var)   
-            #inflation = tf.exp(tf.stop_gradient(log_inflation))
-            inflation = tf.exp(log_inflation)   # avoid ksd overinflates 
+            mu_nograd = tf.stop_gradient(mu)  
+            log_var_nograd = tf.stop_gradient(log_var)   
+            inflation = tf.stop_gradient(inflation)
+            #inflation = tf.exp(log_inflation)   # avoid ksd overinflates 
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
-            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var, axis=-1)
-            return eps * (inflation* tf.exp(log_var / 2)) + mu, logp
+            logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var_nograd, axis=-1)
+            return eps * (inflation* tf.exp(log_var_nograd / 2)) + mu_nograd, logp
 
-        def gen_fun_train_ksd(sample_batch_size, input_data_batch_size ,log_inflation):
+        def gen_fun_train_ksd(sample_batch_size, input_data_batch_size ,inflation):
             mu, log_var = vaeq.Q(X_batch_train)
-            inflation = tf.exp(log_inflation)
+            #inflation = tf.exp(log_inflation)
             mu_nograd = tf.stop_gradient(mu)
             log_var_nograd = tf.stop_gradient(log_var)
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
@@ -139,11 +141,12 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             pot_fun=pot_fun_train,
             state_init_gen=gen_fun_train_hmc,
             input_data_batch_size=mb_size,
-            sample_batch_size=z_train_sample_batch_size,
+            #sample_batch_size=z_train_sample_batch_size,            
+            sample_batch_size=1,
             training=True
         )
         pot_batch_mean = -neg_pot    # pot_batch_mean is neg-log-lik
-        
+       
         ksd_mean = hamInfNet_hm.build_ksd_graph(
             pot_fun=pot_fun_not_train,
             state_init_gen=gen_fun_train_ksd,
@@ -152,29 +155,40 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             training=True
         )
         
-        q_loss = vaeq.create_loss(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
-        loss =  pot_batch_mean + q_loss + ksd_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
         
-        starter_learning_rate = lr
-        learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step,
-                                                   1000, lr_decay, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-        train_op = optimizer.minimize(loss, global_step=global_step)
+        q_loss1 = vaeq.create_loss_train(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
         
-        inflation = hamInfNet_hm.getInflation() 
+        
+        q_loss2 = vaeq.create_loss_not_train(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
         """
-        loss =  ksd_mean + pot_batch_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
+        #loss =  pot_batch_mean + q_loss  + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
+        loss =  pot_batch_mean + q_loss +ksd_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
 
         starter_learning_rate = lr
         learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step,
                                                    1000, lr_decay, staircase=True)
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         train_op = optimizer.minimize(loss, global_step=global_step)
+        """
+        infl = hamInfNet_hm.getInflation() 
+        
+        loss = q_loss2 + ksd_mean + pot_batch_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
 
+        starter_learning_rate = lr
+        learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step,
+                     1000, lr_decay, staircase=True)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+        train_op = optimizer.minimize(q_loss1, global_step=global_step)
+        
+        optimizer2 = tf.train.AdamOptimizer(learning_rate=learning_rate)
+        train_op2 = optimizer2.minimize(loss, global_step=global_step2)
+        """
         q_loss = vaeq.create_loss(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
         optimizer2 = tf.train.AdamOptimizer(learning_rate=learning_rate)
         train_op2 = optimizer2.minimize(q_loss, global_step=global_step2)
         """
+        
+        
     loss_seq = []
     loss_q_seq = []
     pot_seq = []
@@ -188,22 +202,78 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        checkpoint_batch = 1000 #1000
+        checkpoint_batch = 5000 #1000
         total_time = 0
+        for i in np.arange(0, 100000):
+            X_mb_raw, _ = dataset.train.next_batch(mb_size)
+            X_mb = dybinarize_mnist(X_mb_raw)
+
+            start = time.time()
+            
+            _, q_loss_i, inflation_i = sess.run(
+                [train_op, q_loss1, infl],
+                feed_dict={X_batch_train: X_mb})
+            """
+            _, loss_i, q_loss_i,  pot_mean_i, recon_mean_i, inflation_i = sess.run(
+                [train_op, loss, q_loss, pot_batch_mean, recon_mean, inflation],
+                feed_dict={X_batch_train: X_mb})
+            """
+            #pot_seq.append(pot_mean_i)
+            end = time.time()
+            total_time += end - start
+            #loss_seq.append(loss_i)
+            loss_q_seq.append(q_loss_i)
+            #ksd_seq.append(ksd_mean_i)
+            #recon_seq.append(recon_mean_i)
+            if i % 1000 ==999:
+            #if True:
+                """
+                log_line = 'iter: {}, loss: {}, q_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
+                                                                                     np.mean(np.array(loss_seq)),
+                                                                                     np.mean(np.array(loss_q_seq)),
+                                                                                     np.mean(np.array(pot_seq)),
+                                                                                     np.mean(np.array(recon_seq)),
+                                                                                     inflation_i,total_time)
+                
+                """                                                                    
+                log_line = 'iter: {}, q_loss: {},  inflation:{}, time: {}'.format(i + 1,
+                                                                                     #np.mean(np.array(loss_seq)),
+                                                                                     np.mean(np.array(loss_q_seq)),
+                                                                                     #np.mean(np.array(ksd_seq)),
+                                                                                     #np.mean(np.array(pot_seq)),
+                                                                                     #np.mean(np.array(recon_seq)),
+                                                                                     inflation_i,
+                                                                                     total_time)
+                
+                print(log_line)
+                log.append(log_line + '\n')
+                #loss_seq.clear()
+                #pot_seq.clear()
+                loss_q_seq.clear()
+                #ksd_seq.clear()
+                #recon_seq.clear()
+                total_time = 0
+            if  i % checkpoint_batch == 4999:
+                    #print("model saved at iter: {}".format(i + 1))
+                    #saver.save(sess, ckpt_name, global_step=global_step2)
+                    with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
+                        log_file.writelines(log)
+                        log.clear()
+            
         for i in np.arange(0, batches):
             X_mb_raw, _ = dataset.train.next_batch(mb_size)
             X_mb = dybinarize_mnist(X_mb_raw)
 
             start = time.time()
-            """
-            _, _, loss_i, q_loss_i, pot_mean_i, recon_mean_i = sess.run(
-                [train_op, train_op2, loss, q_loss, pot_batch_mean, recon_mean],
-                feed_dict={X_batch_train: X_mb})
-            """
-            _, loss_i, q_loss_i, ksd_mean_i, pot_mean_i, recon_mean_i, inflation_i = sess.run(
-                [train_op, loss, q_loss, ksd_mean, pot_batch_mean, recon_mean, inflation],
-                feed_dict={X_batch_train: X_mb})
             
+            _, loss_i, q_loss_i, ksd_mean_i, pot_mean_i, recon_mean_i,inflation_i = sess.run(
+                [train_op2, loss, q_loss2, ksd_mean, pot_batch_mean, recon_mean, infl],
+                feed_dict={X_batch_train: X_mb})
+            """
+            _, loss_i, q_loss_i,  pot_mean_i, recon_mean_i, inflation_i = sess.run(
+                [train_op, loss, q_loss, pot_batch_mean, recon_mean, inflation],
+                feed_dict={X_batch_train: X_mb})
+            """
             pot_seq.append(pot_mean_i)
             end = time.time()
             total_time += end - start
@@ -211,8 +281,17 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             loss_q_seq.append(q_loss_i)
             ksd_seq.append(ksd_mean_i)
             recon_seq.append(recon_mean_i)
-            #if i % 10 ==9:
-            if True:
+            if i % 10 ==9:
+            #if True:
+                """
+                log_line = 'iter: {}, loss: {}, q_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
+                                                                                     np.mean(np.array(loss_seq)),
+                                                                                     np.mean(np.array(loss_q_seq)),
+                                                                                     np.mean(np.array(pot_seq)),
+                                                                                     np.mean(np.array(recon_seq)),
+                                                                                     inflation_i,total_time)
+                
+                """                                                                    
                 log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
                                                                                      np.mean(np.array(loss_seq)),
                                                                                      np.mean(np.array(loss_q_seq)),
@@ -221,6 +300,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                                                                                      np.mean(np.array(recon_seq)),
                                                                                      inflation_i,
                                                                                      total_time)
+                
                 print(log_line)
                 log.append(log_line + '\n')
                 loss_seq.clear()
@@ -229,14 +309,14 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 ksd_seq.clear()
                 recon_seq.clear()
                 total_time = 0
-            if save_model and i % checkpoint_batch == 999:
+            if save_model and i % checkpoint_batch == 4999:
                 print("model saved at iter: {}".format(i + 1))
-                saver.save(sess, ckpt_name, global_step=global_step)
+                saver.save(sess, ckpt_name, global_step=global_step2)
                 with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
                     log_file.writelines(log)
                     log.clear()
         if save_model:
-            saver.save(sess, ckpt_name, global_step=global_step)
+            saver.save(sess, ckpt_name, global_step=global_step2)
             with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
                 log_file.writelines(log)
                 log.clear()
@@ -245,4 +325,4 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
 if __name__ == '__main__':
     mnist = input_data.read_data_sets('data/MNIST_data', one_hot=True)
-    train(setting=training_setting(10), dataset=mnist, save_model=True, device="GPU") # 32
+    train(setting=training_setting(32), dataset=mnist, save_model=True, device="GPU") # 32
