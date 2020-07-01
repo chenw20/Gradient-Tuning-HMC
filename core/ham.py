@@ -56,7 +56,7 @@ def leapfrog(x, r, pot_fun, eps=0.1, numleap=3, r_var=1.0, back_prop=False, stop
                                                         back_prop=back_prop)
         return __leapfrog_step_post(x_new_interm, r_new_interm, pot_fun, eps, r_var=r_var,
                                     stop_gradient_pot=stop_gradient_pot)
-"""   
+"""
 def leapfrog(x, r, pot_fun, eps=0.1, numleap=3, r_var=1.0, back_prop=False, stop_gradient_pot=True):
     with tf.name_scope("LF"):
         x_new, r_new = __leapfrog_step_pre(x, r, pot_fun, eps, stop_gradient_pot)
@@ -83,14 +83,14 @@ def leapfrog(x, r, pot_fun, eps=0.1, numleap=3, r_var=1.0, back_prop=False, stop
         acp_flag = acp > tf.random_uniform(shape=tf.shape(acp))  # sample_batch * input_batch
         x_accepted = tf.where(tf.tile(tf.expand_dims(acp_flag, 2), (1,1,x.shape[-1])), x_new_end, x)
         return x_accepted, r_new_end
-"""        
 
+"""
 
 def hmc_kernel(pot_fun, x_init, num_leaps, step_size, dtype=tf.float32):
     pot_init = pot_fun(x_init)
     momentum = tf.random_normal(shape=tf.shape(x_init), dtype=dtype)
     kin = tf.reduce_sum(0.5 * momentum ** 2, axis=-1)
-    x_new, momentum_new = leapfrog_no_MH(x_init, momentum, pot_fun, step_size, num_leaps, r_var=1.0)
+    x_new, momentum_new = leapfrog(x_init, momentum, pot_fun, step_size, num_leaps, r_var=1.0)
     pot_new = pot_fun(x_new)
     kin_new = tf.reduce_sum(0.5 * momentum_new ** 2, axis=-1)
     dH = pot_init + kin - (pot_new + kin_new)
