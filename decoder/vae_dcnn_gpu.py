@@ -29,4 +29,4 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
         z_reshaped = tf.reshape(z, shape=(dim_keep_prod, self.z_dim))
         print(z_reshaped)
         logits = self.dcnn(z_reshaped)
-        return tf.reshape(logits, shape=dim_keep+(-1,))
+        return tf.reshape(logits, shape=dim_keep+(-1,)) 
