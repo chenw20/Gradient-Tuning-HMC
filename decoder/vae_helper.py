@@ -140,4 +140,3 @@ if __name__ == '__main__':
     xe_loss = sigmoid_cross_entroy_loss(logits=logits, labels=labels)
     with tf.Session() as sess:
         print(sess.run(xe_loss))
-
