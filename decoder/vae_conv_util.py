@@ -203,10 +203,3 @@ def mlp_layer2(d_in, d_out, activation, name):
 
 def sample_gaussian(mu, log_sig):
     return mu + tf.exp(log_sig) * tf.random_normal(mu.get_shape())
-
-
-
-
-
-
-
