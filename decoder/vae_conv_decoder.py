@@ -7,10 +7,8 @@ from decoder.mlp import mlp_layer
 
 def deconv_layer(output_shape, filter_shape, activation, strides, name):
     #with tf.variable_scope(name,reuse=tf.AUTO_REUSE) as scope:
-        #W = slim.variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
-        #b = tf.Variable(tf.zeros([filter_shape[-2]]), name=name + '_b')  # use output channel
     W = tf.get_variable(shape=filter_shape, initializer=tf.contrib.layers.xavier_initializer(), name=name + '_W')  # use output channel
-    b = tf.get_variable(shape=filter_shape[-2],initializer=tf.zeros_initializer, name=name + '_b')  # use output channel
+    b = tf.get_variable(shape=(filter_shape[-2],),initializer=tf.zeros_initializer, name=name + '_b')  # use output channel
 
     def apply_train(x):
         output_shape_x = (x.get_shape().as_list()[0],) + output_shape
