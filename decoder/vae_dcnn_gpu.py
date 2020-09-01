@@ -30,3 +30,4 @@ class VAE_DCNN_GPU(VAE_ABC_GPU):
         print(z_reshaped)
         logits = self.dcnn(z_reshaped)
         return tf.reshape(logits, shape=dim_keep+(-1,)) 
+
