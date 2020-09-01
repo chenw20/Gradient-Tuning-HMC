@@ -34,7 +34,7 @@ def load_model(model_path, mb_size=36, dtype=tf.float32):
         vfun = 'sigmoid'
     vae_decoder = VAE_DCNN(h_dim=h_dim, z_dim=z_dim)
     vae_decoder_pot = VAE_DCNN_GPU(h_dim=h_dim, z_dim=z_dim, gen=vae_decoder.get_generator(), afun=vfun)
-    vae_encoder = VAEQ_CONV(alpha=0.3,z_dim=z_dim, h_dim=h_dim)
+    vae_encoder = VAEQ_CONV(alpha=1.0,z_dim=z_dim, h_dim=h_dim)
     hamInfNet_hm = HamInfNetNN(num_layers=num_layers,
                                num_lfsteps=num_lfsteps,
                                sample_dim=z_dim,
@@ -42,7 +42,24 @@ def load_model(model_path, mb_size=36, dtype=tf.float32):
     return vae_encoder, vae_decoder, vae_decoder_pot, hamInfNet_hm
 
 def demo(dataset, device="GPU", dtype=tf.float32):
-    model_path = "model/mb_128_layers_10_epoch_50/"
+    #model_path="model/inflation_eq1/"
+    #model_path="model/inflation_eqsq2/"
+    #model_path="model/inflation_eq2/"
+    #model_path="model/inflation_eqsq8/"
+    #model_path="../experiment/HEI/model/inflation_eq4/"
+    #model_path="../experiment/HEI/model/inflation_eqsq32/"
+    #model_path="../experiment/HEI/model/inflation_eqsq64/"
+    
+    
+    #model_path="model/inflation_eqsq128/"
+    #model_path="../experiment/HEI/model/inflation_eqsq256/"
+    #model_path="../experiment/HEI/model/inflation_eqsq512/"
+    #model_path="model/inflation_eqsq1024/"
+    
+    model_path="model/hei_maxsksd_alpha1/"
+    #model_path="model/hei_ksd_alpha1/"
+    #model_path="../experiment/HEI/model/vanila_iwae/"
+
     mb_demo_size = 100
 
     setting = load_setting(model_path)
@@ -55,45 +72,38 @@ def demo(dataset, device="GPU", dtype=tf.float32):
     with tf.device(device_config):
         X_batch_demo = tf.placeholder(dtype, shape=[mb_demo_size, X_mnist_dim])
         vae_encoder, vae_decoder, vae_decoder_pot, hamInfNet_hm = load_model(model_path, mb_size=mb_demo_size)
+        
         q0_mean, q0_logvar = vae_encoder.Q(X_batch_demo)
 
-        pot_fun = lambda z: vae_decoder_pot.pot_fun(data_x=X_batch_demo, sample_z=z)
+        pot_fun = lambda z: vae_decoder_pot.pot_fun_train(data_x=X_batch_demo, sample_z=z)
        
         log_partition, log_weights, sample, acp_rate = hais_gauss(pot_target=pot_fun, num_chains=100, input_batch_size=mb_demo_size, dim=z_dim,
                                                               num_scheduled_dists=1000,
                                                               num_leaps=5,
-                                                              step_size=0.15)
+                                                              step_size=0.25)
+        
 
     saver = tf.train.Saver()
     
     with tf.Session() as sess:
-        saver.restore(sess, tf.train.latest_checkpoint(model_path))
+        #saver.restore(sess, model_path+"vae_dcnn_relu-hei-mnist-alpha1e+00-zd32-hd500-mbs128-mbn95000-h30-l5-reg1e-06-dybin-lr1e-04.ckpt-50000")
+        saver.restore(sess,tf.train.latest_checkpoint(model_path))
         print("Model restored.")
-        log_partition_list=[]
-        log_weights_list=[]
-        sample_list=[]
-        acp_rate_list=[]
+        
+        log_parts=[]
         for i in range(100):
-            start = time.time()
             X_mb_demo, _ = dataset.test.next_batch(mb_demo_size)
-            log_partition_i, log_weights_i, sample_i, acp_rate_i = sess.run([log_partition, log_weights, sample, acp_rate], feed_dict={X_batch_demo: X_mb_demo})
-            end = time.time()
-            time_cost = end - start
-            log_partition_list.append(log_partition_i)
-            log_weights_list.append(log_weights_i)
-            sample_list.append(sample_i)
-            acp_rate_list.append(acp_rate_i)
-            print('iter: {}, log_partition: {}, time: {}'.format(i+1, log_partition_i, time_cost))
-    return log_partition_list, log_weights_list, sample_list, acp_rate_list
+            log_part,acp = sess.run([log_partition,acp_rate], feed_dict={X_batch_demo: X_mb_demo})
+            print('iter: {}, average-log-partition: {}, average-acp-rate: {}'.format(i+1,np.mean(log_part),np.mean(acp)))
+            log_parts.append(np.mean(log_part))
+
+        return log_parts
+        
 
         
 
 
 if __name__ == '__main__':
     mnist = load_iwae_binarised_mnist_dataset()
-    log_partition_list, log_weights_list, sample_list, acp_rate_list = demo(dataset=mnist,device='CPU')
+    log_partition_list = demo(dataset=mnist,device='CPU')
     print('test set log(x): {}'.format(np.mean(np.asarray(log_partition_list))))
-    np.save('hais_result/opt_inf/log_x.npy', np.asarray(log_partition_list))
-    np.save('hais_result/opt_inf/log_weights.npy', np.asarray(log_weights_list))
-    np.save('hais_result/opt_inf/samples.npy', np.asarray(sample_list))
-    np.save('hais_result/opt_inf/acp_rate.npy', np.asarray(acp_rate_list))
