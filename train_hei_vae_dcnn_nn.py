@@ -14,17 +14,17 @@ from util.utils import dybinarize_mnist
 
 def training_setting(z_dim):
     setting = {'mb_size': 128,
-               'alpha': 0.3,
+               'alpha': 1.0,
                'z_dim': z_dim,
                'h_dim': 500,  #500
                'X_mnist_dim': 28 ** 2,
                'momentum_train_batch_size': 1,
-               'z_train_sample_batch_size': 30,  #1
+               'z_train_sample_batch_size': 30,  
                'num_layers': 30,   #30
                'num_lfsteps': 5,
                'momentum_std': 1.0,
                'generator': 'dcnn_relu',
-               'batches': 100000,   #500000
+               'batches': 95000,   #500000
                'dybin': True,
                'reg': 0.000001,
                'lr': 0.0002, #0.0002
@@ -89,11 +89,10 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                                                                                               num_layers,
                                                                                               num_lfsteps,
                                                                                               reg, bin_label, lr)
-    output_dir = "model/32zdim_newobj/"
+    output_dir = "model/debug/"
 
     if save_model:
         os.mkdir(output_dir + '{}'.format(model_name))
-        #ckpt_name = output_dir + '{}/{}.ckpt'.format(model_name, model_name)
         ckpt_name = output_dir + '{}.ckpt'.format(model_name)
         setting_filename = output_dir + '{}/setting.json'.format(model_name)
         with open(setting_filename, 'w') as f:
@@ -115,7 +114,6 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             mu_nograd = tf.stop_gradient(mu)  
             log_var_nograd = tf.stop_gradient(log_var)   
             inflation = tf.stop_gradient(inflation)
-            #inflation = tf.exp(log_inflation)   # avoid ksd overinflates 
             eps = tf.random_normal(shape=(sample_batch_size, input_data_batch_size, z_dim))
             logp = -0.5 * tf.reduce_sum((inflation*eps) ** 2 + log_2pi + 2*tf.log(inflation) + log_var_nograd, axis=-1)
             return eps * (inflation* tf.exp(log_var_nograd / 2)) + mu_nograd, logp
@@ -133,7 +131,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
 
         hamInfNet_hm = HamInfNet(num_layers=num_layers, num_lfsteps=num_lfsteps,
                                  sample_dim=z_dim, dtype=dtype)
-        #neg_pot, recon_mean, elbo_x_mean = hamInfNet_hm.build_elbo_graph(
+
         neg_pot, recon_mean = hamInfNet_hm.build_elbo_graph(
             pot_fun=pot_fun_train,
             state_init_gen=gen_fun_train_hmc,
@@ -151,7 +149,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             training=True
         )
         
-        q_loss = vaeq.create_loss_not_train(vae, X_batch_train, batch_size = 1, loss_only=True)
+        q_loss = vaeq.create_loss_not_train(vae, X_batch_train, batch_size = 1, loss_only=True) # do not train decoder(trained by max E-log-target) params using alpha_divergence
         loss =  pot_batch_mean + q_loss + ksd_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
     
         starter_learning_rate = lr
@@ -166,23 +164,10 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
         
         inflation = hamInfNet_hm.getInflation()
         
-        qloss1=vaeq.create_loss_train(vae,X_batch_train,batch_size=1,loss_only=True)
+        qloss1=vaeq.create_loss_train(vae,X_batch_train,batch_size=1,loss_only=True) # pretrain decoder params along with encoder params using standard VAE/IWAE scheme
         optimizer2=tf.train.AdamOptimizer(learning_rate=learning_rate2)
         train_op2=optimizer2.minimize(qloss1,global_step=global_step2)
 
-        """
-        loss =  ksd_mean + pot_batch_mean + reg * (vae.get_parameters_reg() + vaeq.get_parameters_reg())
-
-        starter_learning_rate = lr
-        learning_rate = tf.train.exponential_decay(starter_learning_rate, global_step,
-                                                   1000, lr_decay, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-        train_op = optimizer.minimize(loss, global_step=global_step)
-
-        q_loss = vaeq.create_loss(vae, X_batch_train, batch_size = z_train_sample_batch_size, loss_only=True)
-        optimizer2 = tf.train.AdamOptimizer(learning_rate=learning_rate)
-        train_op2 = optimizer2.minimize(q_loss, global_step=global_step2)
-        """
     loss_seq = []
     loss_q_seq = []
     pot_seq = []
@@ -199,7 +184,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
         checkpoint_batch = 5000 #1000
         total_time = 0
         
-        for i in np.arange(0,100000):
+        for i in np.arange(0,100000):  # pretrain encoder+decoder using stadard VAE/IWAE training scheme
             X_mb_raw,_=dataset.train.next_batch(mb_size)
             X_mb=dybinarize_mnist(X_mb_raw)
             start=time.time()
@@ -212,7 +197,6 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             loss_q_seq.append(q_loss1_i)
             
             if i % 1000 ==999:
-            #if True:
                 log_line = 'iter: {}, q_loss: {},inflation:{}, time: {}'.format(i+1, np.mean(np.asarray(loss_q_seq)),
                                                                                      inflation_i,
                                                                                      total_time)
@@ -225,8 +209,6 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
                 
                 total_time = 0
             if i % checkpoint_batch == 4999:
-                #print("model saved at iter: {}".format(i + 1))
-                #saver.save(sess, ckpt_name, global_step=global_step)
                 with open(output_dir + '{}/training.cklog'.format(model_name), "a+") as log_file:
                     log_file.writelines(log)
                     log.clear()
@@ -236,11 +218,7 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             X_mb = dybinarize_mnist(X_mb_raw)
 
             start = time.time()
-            """
-            _, _, loss_i, q_loss_i, pot_mean_i, recon_mean_i = sess.run(
-                [train_op, train_op2, loss, q_loss, pot_batch_mean, recon_mean],
-                feed_dict={X_batch_train: X_mb})
-            """
+            
             _, loss_i, q_loss_i, ksd_mean_i, pot_mean_i, recon_mean_i, inflation_i = sess.run(
                 [train_op, loss, q_loss, ksd_mean, pot_batch_mean, recon_mean, inflation],
                 feed_dict={X_batch_train: X_mb})
@@ -253,7 +231,6 @@ def train(setting, dataset, dataset_name='mnist', save_model=False, device='CPU'
             ksd_seq.append(ksd_mean_i)
             recon_seq.append(recon_mean_i)
             if i % 10 ==9:
-            #if True:
                 log_line = 'iter: {}, loss: {}, q_loss: {}, ksd_loss: {}, pot: {}, recon: {}, inflation:{}, time: {}'.format(i + 1,
                                                                                      np.mean(np.array(loss_seq)),
                                                                                      np.mean(np.array(loss_q_seq)),
