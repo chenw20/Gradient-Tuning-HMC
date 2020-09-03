@@ -136,7 +136,8 @@ class VAEQ_CONV:
             return -DReG_mean
         else:
             return vae_loss   # For standard vi (alpha = 0)
-    
+        
+        
     
     def create_loss_train(self, vae, X_batch, batch_size=1, loss_only=True):
         z_mu, z_logvar = self.Q(X=X_batch)   # input_batch * latent_dim
@@ -174,9 +175,10 @@ class VAEQ_CONV:
         alpha_div_term2 = (tf.stop_gradient(tf.exp(self.alpha* log_w - tf.reduce_logsumexp(self.alpha* log_w, axis =0)))) *log_w
         DReG_mean = self.alpha*(self.alpha* tf.reduce_mean(tf.reduce_sum(alpha_div_term1, axis=0)) + (1.-self.alpha)* tf.reduce_mean(tf.reduce_sum(alpha_div_term2, axis=0)))
         
-        return -DReG_mean
-        # For standard vi (alpha = 0):
-        #return vae_loss
+        if self.alpha > 1e-6:
+            return -DReG_mean
+        else:
+            return vae_loss   # For standard vi (alpha = 0)
         
 
 class VAE_DCNN_GPU(VAE_ABC_GPU):
