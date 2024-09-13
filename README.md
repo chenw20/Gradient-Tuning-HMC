@@ -1,4 +1,3 @@
-# Hamiltonian Ergodic Inference
 This is the demo code of [gradient-based tuning of HMC hyperparameters](https://proceedings.mlr.press/v139/campbell21a.html) for better posterior inference in VAE.
 
 ## Requirement
